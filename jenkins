@@ -1,0 +1,83 @@
+pipeline{
+   agent any
+   tools{
+   maven"maven"
+   jdk "oracle"
+   }
+
+   stages{
+    stage('fetch github code'){
+        steps {
+            git branch: 'vp-rem', url:'https://github.com/devopshydclub/vprofile-repo.git'
+        }
+    }
+    stage('Maveb Build'){
+        steps{
+            sh 'mvn clean install -DskipTests'
+        }
+
+        post {
+            success {
+                echo 'archiving it...'
+                archiveArtifacts artifacts: '**/target/*.war'
+            }
+        }
+    }
+
+    stage ('unit test'){
+        steps{
+            sh 'mvn test'
+        }
+    }
+
+    stage('Checkstyle aalysis'){
+        steps{
+            sh 'mvn checkstyle:checkstyle'
+        }
+    }
+
+    stage('CODE ANALYSIS with SONARQUBE') {
+          
+		environment {
+            scannerHome = tool 'sonar4.8'
+         }
+
+        steps {
+            withSonarQubeEnv('sonar') {
+               sh '''${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=vprofile \
+                   -Dsonar.projectName=vprofile-repo \
+                   -Dsonar.projectVersion=1.0 \
+                   -Dsonar.sources=src/ \
+                   -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/ \
+                   -Dsonar.junit.reportsPath=target/surefire-reports/ \
+                   -Dsonar.jacoco.reportsPath=target/jacoco.exec \
+                   -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml'''
+                }
+
+               timeout(time: 10, unit: 'MINUTES') {
+               waitForQualityGate abortPipeline: true
+               }
+            }
+        }   
+    }
+
+    stage('Upload to nexus'){
+        steps{
+            nexusVersion: 'nexus3',
+            protocol: 'http'
+            nexusUrl: '65.0.168.33:8081',
+            groupId: 'QA',
+            version: "${env.BUILD_ID}-${env.BUILD_TIMESTAMP}",
+            repository: 'vprofile-repo',
+            credentialId: 'nexus-login',
+            artifacts: [
+                [
+                    artifactId: 'vproapp',
+                    classifier: '',
+                    file: 'target/vprofile-v2.war',
+                    type: 'war'
+                ]
+            ]
+        }
+    }
+}
